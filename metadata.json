@@ -1,0 +1,6 @@
+{
+  "name": "塔罗与雷诺曼在线占卜系统",
+  "description": "一个功能完善的在线塔罗（Tarot）与雷诺曼（Lenormand）卡牌占卜与解牌系统，支持单张、三张牌阵抽取、智能Fisher-Yates洗牌、精美卡牌翻转动画、牌库浏览及历史记录功能。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
