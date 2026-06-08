@@ -126,9 +126,20 @@ export default function App() {
           })
         });
 
-        const data = await response.json();
+        const responseText = await response.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseErr) {
+          const cleanErr = new Error('服务器处于就绪中或响应异常。');
+          (cleanErr as any).code = 'SERVER_ERROR';
+          throw cleanErr;
+        }
+
         if (!response.ok) {
-          throw new Error(data.message || data.error || '无法获取今日神谕');
+          const errObj = new Error(data.message || data.error || '无法获取今日神谕');
+          (errObj as any).code = data.error || 'SERVER_ERROR';
+          throw errObj;
         }
 
         if (active) {
@@ -137,7 +148,7 @@ export default function App() {
       } catch (err: any) {
         console.error('Fetch daily guidance error:', err);
         if (active) {
-          setDailyGuidanceError(err.message === 'GEMINI_API_KEY_MISSING' ? 'KEY_MISSING' : 'ERR');
+          setDailyGuidanceError(err.code === 'GEMINI_API_KEY_MISSING' || err.message === 'GEMINI_API_KEY_MISSING' ? 'KEY_MISSING' : 'ERR');
           // Fallback guidance based on card
           if (divinationType === 'tarot' && todayDailyTarot) {
             const tr = todayDailyTarot;
@@ -352,9 +363,20 @@ export default function App() {
         })
       });
 
-      const data = await resp.json();
+      const responseText = await resp.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        const cleanErr = new Error('由于后台服务重载或网络偶发中断，请尝试再次点击此处的解答按钮进行重新连接并生成。');
+        (cleanErr as any).code = 'SERVER_ERROR';
+        throw cleanErr;
+      }
+
       if (!resp.ok) {
-        throw new Error(data.message || data.error || '联机占卜失败');
+        const errObj = new Error(data.message || data.error || '联机占卜失败');
+        (errObj as any).code = data.error || 'SERVER_ERROR';
+        throw errObj;
       }
 
       setAiResponse(data.text);
@@ -371,7 +393,7 @@ export default function App() {
     } catch (err: any) {
       console.error('Request AI error:', err);
       setAiError({
-        code: err.message === 'GEMINI_API_KEY_MISSING' ? 'KEY_MISSING' : 'SERVER_ERROR',
+        code: err.code === 'GEMINI_API_KEY_MISSING' || err.message === 'GEMINI_API_KEY_MISSING' ? 'KEY_MISSING' : 'SERVER_ERROR',
         message: err.message || '由于连接中断，AI 神谕无法顺利显现。请查看配置。'
       });
     } finally {
