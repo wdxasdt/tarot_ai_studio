@@ -31,6 +31,59 @@ const ai = api_key ? new GoogleGenAI({
 // Print initialization details safely
 console.log(`[Server] Gemini API Key is ${api_key ? 'CONFIUGRED' : 'NOT CONFIGURED (Fallback to offline rules)'}`);
 
+/**
+ * Executes a Gemini request with automatic retry and model fallback capability
+ * to mitigate transient 503 high-demand errors.
+ */
+async function generateWithRetry(contents: any, config: any = {}) {
+  const models = ['gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+  let lastError: any = null;
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`[Server] Generating content using model: ${model} (Attempt ${attempt}/2)`);
+        if (!ai) throw new Error('GEMINI_API_KEY_MISSING');
+        
+        const payload: any = {
+          model,
+          contents,
+        };
+        if (config && Object.keys(config).length > 0) {
+          payload.config = config;
+        }
+        
+        const response = await ai.models.generateContent(payload);
+        console.log(`[Server] Content generated successfully with model: ${model} (Attempt ${attempt}/2)`);
+        return response;
+      } catch (err: any) {
+        console.error(`[Server] Error on model ${model} (Attempt ${attempt}/2):`, err);
+        lastError = err;
+        
+        const errStr = String(err.message || err);
+        const isTransient = errStr.includes('503') || 
+                            errStr.includes('UNAVAILABLE') || 
+                            errStr.includes('demand') || 
+                            errStr.includes('timeout') || 
+                            errStr.includes('limit') ||
+                            err?.status === 503;
+                            
+        if (!isTransient) {
+          throw err;
+        }
+        
+        if (attempt === 1) {
+          console.log(`[Server] Waiting 1000ms before retrying ${model}...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+    console.warn(`[Server] Both attempts on ${model} failed. Falling back to alternative model...`);
+  }
+  
+  throw lastError;
+}
+
 // API Route for AI Card Deck Interpretation
 app.post('/api/divination', async (req, res) => {
   try {
@@ -79,15 +132,28 @@ ${cards.map((c: any, idx: number) => `   - **卡牌 ${idx + 1}：${c.name} (${c.
 
 请使用华丽、悠远而饱含宽容、理性的神谕风辞藻。全部用中文撰写，使用优雅的 Markdown 格式输出。`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: promptText,
-    });
+    const response = await generateWithRetry(promptText);
 
     res.json({ text: response.text });
   } catch (error: any) {
     console.error('Gemini API Error:', error);
-    res.status(500).json({ error: 'SYSTEM_ERROR', message: error.message || 'AI 占卜解算时遇到神秘干扰，请稍后刷新重试。' });
+    const errStr = String(error.message || error);
+    
+    let userMsg = 'AI 占卜在解算您本轮神谕意境时遇到了神秘干扰，请稍后刷新重试。';
+    if (errStr.includes('503') || errStr.includes('demand') || errStr.includes('UNAVAILABLE')) {
+      userMsg = '【星轨拥堵】宇宙中继器目前面临全球极大请求量（503 过载）。我们已竭力切换多条备用连结通道，依然受到了电磁干扰。请您在此屏气凝神沉淀 3-5 秒，然后再次点击开启 AI 专属神谕解读进行连通。';
+    } else if (errStr.includes('GEMINI_API_KEY_MISSING') || errStr.includes('API_KEY_MISSING')) {
+      return res.status(403).json({ 
+        error: 'GEMINI_API_KEY_MISSING',
+        message: '当前尚未配置 GEMINI_API_KEY 密钥。请在 AI Studio 设置 -> Secrets 面板配置密钥。' 
+      });
+    }
+
+    res.status(500).json({ 
+      error: 'SERVER_ERROR', 
+      message: userMsg,
+      details: errStr
+    });
   }
 });
 
@@ -115,19 +181,26 @@ app.post('/api/divination/daily-guidance', async (req, res) => {
     }
     prompt += `\n请根据这张卡，为今天写一段极具美感、富于能量、温暖深刻的“每日宇宙寄语”（3-4句话，充满元气，不要输出枯燥的项目编号或冷冰冰的教训词）。`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction,
-        temperature: 1.0,
-      }
+    const response = await generateWithRetry(prompt, {
+      systemInstruction,
+      temperature: 1.0,
     });
 
     res.json({ guidance: response.text || "愿今天充满阳光。" });
   } catch (error: any) {
     console.error('Daily Guidance Error:', error);
-    res.status(500).json({ error: 'SYSTEM_ERROR', message: error.message || '生成每日星示时被神秘磁场阻断，请稍后重试。' });
+    const errStr = String(error.message || error);
+    
+    let userMsg = '生成每日星示时被神秘磁场阻断，请稍后刷新重试。';
+    if (errStr.includes('503') || errStr.includes('demand') || errStr.includes('UNAVAILABLE')) {
+      userMsg = '【星海尘埃】每日宇宙频段当前信号极其拥塞（503 载荷），我们正在采用低时延神谕通道。请多刷新或稍后重试。';
+    }
+
+    res.status(500).json({ 
+      error: 'SERVER_ERROR', 
+      message: userMsg,
+      details: errStr
+    });
   }
 });
 
